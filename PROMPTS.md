@@ -379,8 +379,6 @@ D2 /admin/personas
 ANTHROPIC_API_KEY가 커밋에 포함되지 않았는지 git log -p로 점검해.
 ```
 
----
-
 ## 프롬프트 사용 팁
 
 | 상황 | 대응 |
