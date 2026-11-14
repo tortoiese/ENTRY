@@ -8,6 +8,7 @@
 
 - Base URL: `{API_BASE}/api/v1`
 - 모든 요청 헤더: `X-Entry-Session: <uuid>` (첫 세션 발급 요청만 예외)
+- D1/D2(`/admin/**`, `/personas/**`)는 추가로 `X-Entry-Admin-Token: <uuid>` 헤더 필요(10장 참고)
 - 응답 래퍼
 
 ```json
@@ -20,7 +21,7 @@
 { "error": { "code": "PRODUCT_NOT_FOUND", "message": "제품을 찾을 수 없습니다." } }
 ```
 
-- `market` enum: `KR | HK | JP | US`
+- `market` enum: `KR | HK | JP | US | SG` (SG는 2026-08-21 추가 — 실제 MCM 매장이 있는 도시 기준. locale은 `en`을 공유한다)
 - `locale` enum: `ko | en | zh-Hant | ja`
 - 시각은 전부 ISO-8601 UTC
 - **세션이 유효하지 않으면 401을 반환하지 않고 새 세션을 발급해 `meta.sessionRotated=true`로 알린다**
@@ -56,6 +57,13 @@ Request `{ "market": "JP", "locale": "ja" }` → `data`: 세션 객체
 
 ## 2. 제품 · 스캔 (P1)
 
+### `GET /products`
+`/dev/qr` QR 시트 전용 가벼운 목록. 재고 조회 없음.
+Response `data`
+```json
+[{ "productId": "SKY-STREAM-W260", "displayName": "스카이 스트림 백팩 화이트 260", "line": "Sky Stream" }, ...]
+```
+
 ### `GET /products/{productId}?market=HK`
 Response `data`
 ```json
@@ -84,7 +92,8 @@ Response `data`
 `priceDisplay`는 **항상 null 또는 미노출**. 할인 관련 필드를 추가하지 않는다.
 
 ### `POST /scans`
-스캔 1건 기록. 저장(save)과는 별개 이벤트.
+스캔 1건 기록. 저장(save)과는 별개 이벤트. 세션에 패스포트가 아직 없으면 이 `storeId`로 조용히
+발급된다(4장 참고) — 매장별 QR 시트(`/dev/qr`)가 `?store=`로 보내는 값이 여기로 그대로 들어온다.
 
 Request
 ```json
@@ -144,11 +153,18 @@ Request `{ "productId": "…", "scanId": "…" }` → `data { "savedCount": 7 }`
 
 ## 4. 패스포트 (P2)
 
-### `POST /passport` — 입구 스캔 시 발급
+**실제 게스트 흐름에는 "발급 버튼"이 없다.** `POST /scans`(P1 매대 태그)든 `POST /passport/stamps`(P4
+구역 검인)든, 세션의 첫 스캔이 곧 입구 태그를 댄 것과 같아 그 순간 조용히·멱등하게 발급된다.
+`issuedAtStore`가 매장 카탈로그(성수/더현대/합정/문래, 2026-08-21 추가)에 없으면 성수 팝업으로
+폴백한다 — 기존에 뿌려둔 QR과 호환된다. 이미 발급된 세션이면 이후 storeId는 무시하고 기존
+패스포트를 그대로 돌려준다.
+
+### `POST /passport` — 개발용 수동 발급(정상 플로우에서는 쓰지 않는다, `/dev/reset` 전용)
 Request `{ "popupId": "MCM-SEONGSU-2026", "issuedAtStore": "KR-SEONGSU" }`
+`issuedAtStore`가 실제 발급 장소/popupId를 결정한다 — `popupId` 필드값은 무시된다.
 
 ### `POST /passport/stamps`
-Request `{ "zoneId": "ZONE03" }`
+Request `{ "zoneId": "ZONE03", "storeId": "KR-HYUNDAI" }` — `storeId`는 선택값, 없으면 성수로 폴백
 Response `data`
 ```json
 {
@@ -199,7 +215,25 @@ MRZ 문자열은 **서버가 생성**해 내려준다. 프론트가 조립하지
 ```
 
 ### `POST /recap/link` (계정 연결 — 해커톤에서는 이메일 형식 검증만, 저장은 해시 처리)
-Request `{ "channel": "EMAIL", "value": "…" , "consent": true }` → `data { "linked": true }`
+Request `{ "channel": "EMAIL", "value": "…" , "consent": true }` → `data { "linked": true, "emailSent": true }`
+
+`value`(원문 이메일/전화번호)는 DB에 저장하지 않는다 — SHA-256 해시만 남는다(CLAUDE.md R8).
+`channel`이 `EMAIL`이고 `consent`가 true면, 그 요청 안에서만 잠깐 쓴 원문 이메일로 저장 링크
+(`{ENTRY_WEB_ORIGIN}/resume/{sessionId}`)를 1회 발송한다 — 발송 실패해도 `linked`는 그대로 true,
+`emailSent`만 false. `entry.mail.mock=true`(기본값)면 실제로 보내지 않고 서버 로그에만 남긴다.
+`channel`이 `PHONE`이면 `emailSent`는 항상 false.
+
+### `GET /resume/:sessionId` (프론트 전용 라우트, API 아님)
+이메일로 받은 링크. `localStorage["entry.sid"]`를 그 sessionId로 설정하고 `/passport`로 이동한다 —
+세션 ID를 아는 사람은 누구나 그 세션에 접근할 수 있다는 기존 신뢰 모델을 그대로 확장한 것이다.
+
+### `POST /recap/lookup` (2026-08-21 추가 — 이메일로 돌아가기, `/lookup`)
+`X-Entry-Session` 없이도 호출 가능. Request `{ "email": "…" }` → 입력값을 해시해 기존 `RecapLink`
+해시와 대조한다(원문 대조 아님 — DB에 원문이 없으므로). 같은 이메일로 여러 번 연결했다면 가장 최근
+세션을 돌려준다.
+Response `data { "sessionId": "…" }`. 못 찾으면 404 `CONTACT_NOT_FOUND`.
+프론트는 이 sessionId를 `localStorage["entry.sid"]`에 심고 `/passport`로 이동, 방금 입력한
+이메일 문자열은 (서버 조회 결과가 아니라 클라이언트에 남긴 것으로) 화면 상단에 계속 표시한다.
 
 ---
 
@@ -289,6 +323,17 @@ Response `data { "slot": "PRIORITY_ENTRY", "timeWindow": "11:00–12:00", "code"
 ---
 
 ## 10. 대시보드 (D1)
+
+**D1/D2(`/admin/**`, `/personas/**`)는 `X-Entry-Admin-Token` 헤더가 없으면 전부 401
+`ADMIN_AUTH_REQUIRED`를 반환한다.** 게스트 세션(`X-Entry-Session`)과 별도 층위이며, 세션처럼
+자동 재발급되지 않는다 — 프론트는 401을 받으면 토큰을 지우고 `/entryadmin`으로 보낸다.
+
+### `POST /admin/login`
+관리자 인증. `X-Entry-Admin-Token` 없이 호출 가능(로그인 자체는 예외).
+Request `{ "password": "entryadmin" }`
+Response `data { "adminToken": "…", "expiresAt": "2026-08-21T00:00:00Z" }`
+실패 시 401 `{ "error": { "code": "ADMIN_PASSWORD_INVALID", "message": "…" } }`
+`adminToken`은 이후 모든 D1/D2 요청에 `X-Entry-Admin-Token` 헤더로 첨부한다.
 
 ### `GET /admin/intent-dashboard?popupId=…&from=…&to=…`
 ```json

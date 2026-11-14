@@ -14,10 +14,20 @@ server:
 entry:
   cors:
     origins: ${ENTRY_CORS_ORIGINS:http://localhost:5173}
+  web:
+    origin: ${ENTRY_WEB_ORIGIN:http://localhost:5173}
   ai:
     mock: ${ENTRY_AI_MOCK:true}
+    provider: ${ENTRY_AI_PROVIDER:anthropic}
     model: ${ENTRY_AI_MODEL:claude-sonnet-5}
+    openai-model: ${ENTRY_AI_OPENAI_MODEL:gpt-4o}
     timeout-seconds: 8
+  admin:
+    password: ${ENTRY_ADMIN_PASSWORD:entryadmin}
+    token-ttl-hours: ${ENTRY_ADMIN_TOKEN_TTL_HOURS:12}
+  mail:
+    mock: ${ENTRY_MAIL_MOCK:true}
+    from-address: ${ENTRY_MAIL_FROM:ENTRY <onboarding@resend.dev>}
   brand:
     popup-id: ${ENTRY_BRAND_POPUP_ID:MCM-SEONGSU-2026}
     issued-place: ${ENTRY_BRAND_ISSUED_PLACE:SEOUL / SEONGSU}

@@ -1,0 +1,35 @@
+package io.entry.ai;
+
+/**
+ * entry.ai.mock=true(기본값)일 때 실제 Anthropic API를 호출하지 않고 고정 응답을 반환한다.
+ * 개발 중 토큰 절약 + 오프라인 개발용. 각 응답은 해당 프롬프트가 요구하는 JSON 스키마를 그대로 흉내낸다.
+ */
+public class MockAiClient implements AiClient {
+
+    @Override
+    public String complete(String promptKey, String prompt) {
+        return switch (promptKey) {
+            case "intent-signal" -> """
+                    {"stage":"SIZE_DECIDED","comparisonAxis":"COLOR","unresolved":"COLOR_CARE","confidence":0.78,
+                    "rationale":"같은 라인 안에서 컬러만 바꿔 여러 차례 스캔했습니다."}""";
+            case "greeting" -> """
+                    {"message":"다시 보시네요. 컬러 때문인가요, 사이즈 때문인가요?"}""";
+            case "recap-summary" -> """
+                    {"text":"경량 소재와 수납 중심의 제품을 반복해서 살펴보셨습니다."}""";
+            case "transfer-message" -> """
+                    {"rationale":"체류 마지막 날 이후로 판단해 이 시점으로 이전을 제안합니다.",
+                    "answer":"코팅 소재라 물티슈로 닦아 관리할 수 있습니다."}""";
+            case "conversation-system" -> """
+                    {"message":"코팅 캔버스라 오염에는 강하지만, 어떤 점이 더 궁금하신가요?",
+                    "criteria":["소재 관리"],"unresolved":"COLOR_CARE"}""";
+            case "advisor-briefing" -> """
+                    {"text":"스카이 스트림을 여러 차례 확인했고 컬러 관리가 미해결 요인입니다."}""";
+            case "persona-simulation" -> """
+                    {"results":[
+                    {"variant":"A","saved":true,"reason":"페르소나의 우선순위와 변형 A의 정보 구성이 맞아떨어집니다.","unresolved":"UNKNOWN"},
+                    {"variant":"B","saved":false,"reason":"변형 B는 페르소나가 중요하게 보는 정보를 충분히 보여주지 않습니다.","unresolved":"UNKNOWN"}
+                    ]}""";
+            default -> throw new AiUnavailableException("정의되지 않은 목업 프롬프트: " + promptKey);
+        };
+    }
+}

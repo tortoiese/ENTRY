@@ -6,5 +6,9 @@ export function getRecap() {
 }
 
 export function linkAccount(channel: 'EMAIL' | 'PHONE', value: string, consent: boolean) {
-  return apiRequest<{ linked: boolean }>('/recap/link', { method: 'POST', body: { channel, value, consent } })
+  return apiRequest<{ linked: boolean; emailSent: boolean }>('/recap/link', { method: 'POST', body: { channel, value, consent } })
+}
+
+export function lookupSession(email: string) {
+  return apiRequest<{ sessionId: string }>('/recap/lookup', { method: 'POST', body: { email }, skipSessionHeader: true })
 }

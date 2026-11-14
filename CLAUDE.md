@@ -21,7 +21,7 @@
 | R3 | **위치 추적·백그라운드 동선·카메라 자동 인식 코드를 넣지 않는다.** 사용자가 능동적으로 스캔한 이벤트만 기록 | 프라이버시 원칙 |
 | R4 | **하드웨어 의존 기능(AR, 미러, 키오스크, 비콘) 금지.** 종이 QR + 모바일 웹으로 전부 성립해야 한다 | 심사 조건 |
 | R5 | **AI는 장식이 아니다.** 규칙 기반으로 대체 가능한 자리에 LLM을 넣지 않고, 반대로 AI-1~AI-5 지점은 실제로 호출해서 동작시킨다 | 심사 조건 |
-| R6 | **ANTHROPIC_API_KEY는 프론트엔드에 절대 노출하지 않는다.** 모든 LLM 호출은 Spring 백엔드를 경유 | 보안 |
+| R6 | **ANTHROPIC_API_KEY·OPENAI_API_KEY 등 어떤 LLM 키도 프론트엔드에 절대 노출하지 않는다.** 모든 LLM 호출은 Spring 백엔드를 경유 | 보안 |
 | R7 | **브랜드 종속 요소는 콘텐츠 레이어로 분리한다.** 캐릭터·카피·컬러는 `brand/mcm.json` 같은 설정에서 읽고, 경험 로직에 하드코딩하지 않는다 | 범용화 요구 |
 | R8 | 개인식별정보(이름·연락처·결제)는 계정 연결 이후에만 다루고, 해커톤 범위에서는 **실제 결제·실제 PII를 저장하지 않는다** | 범위 |
 
@@ -32,8 +32,8 @@
 **Frontend** — React 19 + TypeScript + Vite + Tailwind CSS v4 + React Router v7 + Zustand + `motion`(Framer Motion)
 **Backend** — Spring Boot 3.3+ / Java 21 / Gradle(Kotlin DSL) / Spring Web / Spring Data JPA / Validation / springdoc-openapi
 **DB** — 로컬 H2(file mode), 배포 PostgreSQL
-**AI** — Anthropic Messages API, `WebClient`로 백엔드에서 호출
-**배포** — Frontend: Vercel / Backend: Railway(Docker) / DB: Neon
+**AI** — Anthropic Messages API가 기본. 2026-08-19 팀 결정으로 OpenAI Chat Completions API도 병행 지원(`entry.ai.provider=anthropic|openai`, 둘 다 `entry.ai.mock=true`일 때는 안 쓰임). 어느 쪽이든 `WebClient`로 백엔드에서만 호출한다(R6)
+**배포** — 현재는 가비아 클라우드 VM 한 대에 Docker Compose(nginx+api+postgres)로 배포 중(`docker-compose.yml`, `BUILD_STEPS.md` 8-5절). Vercel/Railway/Neon 조합은 대안 경로로 문서만 유지(8-2~8-4절)
 
 새 라이브러리를 추가할 때는 **먼저 이유를 한 줄로 말하고 승인을 받는다.** UI 컴포넌트 라이브러리(MUI, Ant, shadcn 등)는 쓰지 않는다 — 디자인 시스템을 직접 만든다.
 
@@ -81,10 +81,18 @@ entry/
 | P6 | 대화 이어가기 | `/talk/:scanId` | P1 |
 | P7 | 어드바이저 뷰 | `/advisor/:grantToken` | P2 |
 | P8 | 사전 등록 | `/register` | P1 |
-| D1 | 의도 대시보드 | `/admin` | P1 |
-| D2 | 페르소나봇 콘솔 | `/admin/personas` | P2 |
+| — | 저장 링크 재접속 | `/resume/:sessionId` | P1 |
+| — | 이메일로 돌아가기 | `/lookup` | P1 |
+| D1 | 의도 대시보드 | `/admin` (비밀번호 필요) | P1 |
+| D2 | 페르소나봇 콘솔 | `/admin/personas` (비밀번호 필요) | P2 |
+| — | 운영자 로그인 | `/entryadmin` | P1 |
 
 P1~P8은 **모바일 전용 레이아웃(기준 402×874)**. D1~D2만 데스크톱 레이아웃.
+
+**D1/D2는 게스트 메뉴(`/`)에 노출하지 않는다.** 2026-08-20 팀 결정: `/entryadmin`에서
+`ENTRY_ADMIN_PASSWORD`(기본값 `entryadmin`, 배포 시 반드시 변경)로 로그인해야 `/admin`,
+`/admin/personas`에 들어갈 수 있다. 게스트 QR/URL(`/s/:productId`, `/z/:zoneId`, `/dev/qr`)과
+운영자 QR/URL(`/entryadmin`, `/dev/admin-qr`)은 완전히 분리된 별도 진입점이다.
 
 ---
 
@@ -104,6 +112,7 @@ P1~P8은 **모바일 전용 레이아웃(기준 402×874)**. D1~D2만 데스크�
 - 주석과 커밋 메시지는 한국어, 식별자는 영어
 - 커밋: `feat(scan): 스캔 결과 화면 재고 섹션 추가` 형식
 - TODO를 남길 때는 `// TODO(entry-P4): ...` 처럼 화면 ID를 붙인다
+- **커밋 메시지에 `Co-Authored-By: Claude ...`, `Claude-Session: ...` 같은 AI 공동저자 트레일러를 넣지 않는다.** GitHub Contributors 그래프에 AI가 사람 팀원처럼 노출되는 것을 원하지 않는다는 팀 결정. 작성자(author/committer)는 항상 실제 팀원 계정으로 남긴다
 
 **React**
 - 함수형 컴포넌트 + 훅만. 클래스 컴포넌트 금지

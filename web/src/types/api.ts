@@ -1,6 +1,6 @@
 // docs/API_CONTRACT.md 와 1:1로 맞춘 타입. 서버 enum과 문자열 리터럴 유니온을 일치시킨다.
 
-export type Market = 'KR' | 'HK' | 'JP' | 'US'
+export type Market = 'KR' | 'HK' | 'JP' | 'US' | 'SG'
 export type Locale = 'ko' | 'en' | 'zh-Hant' | 'ja'
 
 export interface ApiMeta {
@@ -31,6 +31,12 @@ export interface SessionData {
   createdAt: string
 }
 
+// ── 운영자 인증 (D1/D2, /entryadmin) ────────────────
+export interface AdminLoginResponse {
+  adminToken: string
+  expiresAt: string
+}
+
 // ── 제품 · 스캔 (P1) ──────────────────────────────
 export type StockStatusCode = 'IN_STOCK' | 'TRANSFERABLE' | 'ONLINE_ONLY' | 'OUT_OF_STOCK'
 
@@ -49,6 +55,12 @@ export interface ProductStock {
   thisStore: StockStatusCode
   domesticOther: StoreStock[]
   homeMarket: { market: Market; status: StockStatusCode; storeName: string }
+}
+
+export interface ProductSummary {
+  productId: string
+  displayName: string
+  line: string
 }
 
 export interface ProductData {
@@ -191,9 +203,9 @@ export interface ConversationStart {
 }
 
 export interface ConversationReply {
-  reply: { character: CharacterId; message: string }
+  reply: { character: CharacterId; message: string } | null
   turnsRemaining: number
-  extracted: { criteria: string[]; unresolved: UnresolvedCode }
+  extracted: { criteria: string[]; unresolved: UnresolvedCode | null }
   handoffSuggested: boolean
 }
 

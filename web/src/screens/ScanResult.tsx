@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useParams, useSearchParams, Link } from 'react-router-dom'
 import MobileFrame from '../components/MobileFrame'
+import PassportCover from '../components/PassportCover'
+import ProductSilhouette from '../components/ProductSilhouette'
 import CharacterBubble from '../components/CharacterBubble'
 import { FieldGrid } from '../components/Field'
 import HairlineSection from '../components/HairlineSection'
@@ -16,6 +18,8 @@ import { buildMrzLine } from '../features/mrz/format'
 import { getProduct } from '../features/products/api'
 import { postScan } from '../features/scan/api'
 import { saveToArchive } from '../features/archive/api'
+import { useDemoStore } from '../features/demo/store'
+import { DEMO_PRODUCT, DEMO_SCAN } from '../features/scan/demoData'
 import brand from '../brand/mcm.json'
 import type { Locale, Market, ProductData, ScanResponse } from '../types/api'
 
@@ -27,6 +31,7 @@ const MARKET_CYCLE: { market: Market; locale: Locale }[] = [
   { market: 'KR', locale: 'ko' },
   { market: 'HK', locale: 'zh-Hant' },
   { market: 'JP', locale: 'ja' },
+  { market: 'SG', locale: 'en' },
   { market: 'US', locale: 'en' },
 ]
 
@@ -41,24 +46,40 @@ export default function ScanResult() {
   const { productId } = useParams<{ productId: string }>()
   const [searchParams] = useSearchParams()
   const zoneId = searchParams.get('zone') ?? DEFAULT_ZONE
+  // 매장별 QR 시트(/dev/qr)가 ?store=로 매장을 실어 보낸다. 없으면 성수 팝업으로 취급한다
+  // (기존에 뿌려둔 QR과의 호환 + 게스트 메뉴에서 직접 들어온 경우의 기본값).
+  const storeId = searchParams.get('store') ?? brand.originStore.storeId
 
   const t = useT()
   const market = useSessionStore((s) => s.market)
   const ready = useSessionStore((s) => s.ready)
   const setMarket = useSessionStore((s) => s.setMarket)
   const setMrz = useMrzStore((s) => s.set)
+  const isDemo = useDemoStore((s) => s.isDemo)
 
   const [product, setProduct] = useState<ProductData | null>(null)
   const [scan, setScan] = useState<ScanResponse | null>(null)
   const [loadError, setLoadError] = useState(false)
   const [savedCount, setSavedCount] = useState<number | null>(null)
   const [toast, setToast] = useState<[string, string?] | null>(null)
+  // QR로 도착할 때마다(=마운트마다) 매대 태그를 처음 대는 순간처럼 표지가 먼저 뜬다.
+  // 패스포트(P2)와 달리 세션당 1회 제한은 두지 않는다 — 스캔마다 다른 실물 태그를 댄 결과이므로.
+  const [coverOpen, setCoverOpen] = useState(false)
 
   // 진입 시 1회: 스캔 이벤트 기록(POST /scans). 시장 전환과는 무관하게 한 번만 발생해야 한다.
+  // 데모 모드(?demo=1 또는 네트워크 실패 후 자동 전환)에서는 호출 없이 고정 데이터를 쓴다.
   useEffect(() => {
     if (!ready || !productId) return
     let cancelled = false
-    postScan({ storeId: brand.originStore.storeId, zoneId, productId, scannedAt: new Date().toISOString() })
+    if (isDemo) {
+      Promise.resolve(DEMO_SCAN).then((res) => {
+        if (!cancelled) setScan(res)
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+    postScan({ storeId, zoneId, productId, scannedAt: new Date().toISOString() })
       .then((res) => {
         if (!cancelled) setScan(res)
       })
@@ -69,12 +90,20 @@ export default function ScanResult() {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, productId])
+  }, [ready, productId, isDemo, storeId])
 
   // 제품/재고 조회: 시장이 바뀌면 재고 표기를 다시 가져온다.
   useEffect(() => {
     if (!ready || !productId) return
     let cancelled = false
+    if (isDemo) {
+      Promise.resolve(DEMO_PRODUCT).then((res) => {
+        if (!cancelled) setProduct(res)
+      })
+      return () => {
+        cancelled = true
+      }
+    }
     getProduct(productId, market)
       .then((res) => {
         if (!cancelled) setProduct(res)
@@ -85,7 +114,7 @@ export default function ScanResult() {
     return () => {
       cancelled = true
     }
-  }, [ready, productId, market])
+  }, [ready, productId, market, isDemo])
 
   // 하단 MRZ 밴드: 실제 관측값(구역/스캔 횟수/저장 여부/시장)만 담는다.
   useEffect(() => {
@@ -99,6 +128,12 @@ export default function ScanResult() {
 
   async function handleSave() {
     if (!productId) return
+    if (isDemo) {
+      const next = (savedCount ?? 0) + 1
+      setSavedCount(next)
+      setToast([t('p1.savedToast'), t('p1.savedToastCount', { count: next })])
+      return
+    }
     try {
       const res = await saveToArchive(productId, scan?.scanId)
       setSavedCount(res.savedCount)
@@ -148,7 +183,8 @@ export default function ScanResult() {
 
   return (
     <MobileFrame>
-      <div className="flex flex-1 flex-col gap-6 pb-[64px] pt-6">
+      <PassportCover isOpen={coverOpen} onOpen={() => setCoverOpen(true)} />
+      <div aria-hidden={!coverOpen} className="flex flex-1 flex-col gap-6 pb-[64px] pt-6">
         <div className="flex justify-end">
           <Button variant="text" aria-label={t('common.marketSwitch')} onClick={() => void handleMarketSwitch()}>
             {market}
@@ -157,7 +193,11 @@ export default function ScanResult() {
 
         {scan && <CharacterBubble name={characterName} message={scan.greeting.message} />}
 
-        <div className="flex flex-col gap-4">
+        {/* 제품 정보 카드. 다크 앱 크롬 위 밝은 내지 카드로 띄운다(피그마 P1 참조). */}
+        <div className="theme-light flex flex-col gap-4 border p-4" style={{ background: 'var(--bone-050)', borderColor: 'var(--hairline)' }}>
+          <div className="flex justify-center">
+            <ProductSilhouette label={product.displayName} />
+          </div>
           <div>
             <p className="t-label" style={{ color: 'var(--graphite)' }}>
               {product.line}
@@ -208,7 +248,16 @@ export default function ScanResult() {
             <Button variant="primary" className="flex-1" onClick={() => void handleSave()}>
               {t('p1.saveButton')}
             </Button>
-            {savedCount !== null && <Stamp label="SAVED" rotationSeed={seedFromString(productId ?? '')} size={44} />}
+            {savedCount !== null && (
+              // 도장은 mix-blend-mode: multiply로 그려져 밝은 종이 위에서만 잉크처럼 보인다.
+              // 다크 화면 위에 찍히므로 도장 뒤에 작은 밝은 패치를 둔다.
+              <span
+                className="inline-flex shrink-0 items-center justify-center rounded-full"
+                style={{ background: 'var(--bone-050)', width: 52, height: 52 }}
+              >
+                <Stamp label="SAVED" rotationSeed={seedFromString(productId ?? '')} size={44} />
+              </span>
+            )}
           </div>
           <Button variant="secondary" onClick={handleCallStaff}>
             {t('p1.callStaff')}
@@ -218,6 +267,9 @@ export default function ScanResult() {
               {t('p1.continueTalk')}
             </Link>
           )}
+          <Link to="/passport" className="t-label text-center underline underline-offset-4" style={{ color: 'var(--ink-700)' }}>
+            {t('nav.viewPassport')}
+          </Link>
         </div>
       </div>
 
